@@ -113,8 +113,8 @@ done
 
 diff=$((endframe-frame))
 if [ "$diff" -ne "0" ]; then
-    echo $diff "missing frames: $((frame+1))-$((endframe-1))"
-    missing_spec="${missing_spec}$((frame+1))-$((endframe-1)),"
+    echo $diff "missing frames: $((frame+1))-$((endframe))"
+    missing_spec="${missing_spec}$((frame+1))-$((endframe)),"
 fi
 
 # Print the spec for missing frames, if any.

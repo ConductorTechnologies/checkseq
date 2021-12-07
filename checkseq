@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+usage()
+{
+echo "########################################################################################################"
+   echo
+   echo "Check the presence and file sizes of a sequence of frames."
+   echo
+   echo "Usage: checkseq -f <first> -l <last> -s <size-in-bytes-approx> -x <number-regex> <files>"
+   echo "Options:"
+   echo "  -f     The first expected frame of the sequence. (Required)"
+   echo "  -l     The last expected frame of the sequence. (Required)"
+   echo "  -s     The expected size of the largest file. This is used to scale the width of the ascii chart."
+   echo "             If you don't provide a value, it will attempt to be 100 characters wide based on the"
+   echo "             size of the first existing file."
+   echo "  -x     Regular expression to catch the frame number."
+   echo "             Default is: \".*\.([0-9]+)\..*\". It captures a number between 2 dots, e.g. my_file.0001.exr"
+   echo "             Example: \".*F([0-9]+)_.*\". It captures a number between F and _, e.g. my_file__F0001_exr"
+   echo "  -h     Print this message."
+   echo
+   echo "If any frames are missing, a frame spec will be printed at the end. this can be used to start a new render."
+   echo 
+   echo "Examples:"
+   echo "   checkseq -f 500 -l 600 -s 300000000 -x \".*_([0-9]+).*\" shot1_05??"
+   echo "   Check the sequence expected to start at 500 and end at 600 with filenames where the frame follows an"
+   echo "   underscore. If the file sizes are around 100 Mb, then the width of the chart will be around 30 characters."
+   echo
+   echo "   checkseq -f 500 -l 1500 shot1_*"
+   echo "   Check the sequence expected to start at 500 and end at 1500 with filenames are standard format: name.number.ext"
+   echo "   The chart will be about 100 characters wide based on the size of the first file."
+   echo
+   echo "########################################################################################################"
+}
+
+# Default frame regex catches a number between 2 dots
+regex=".*\.([0-9]+)\..*"
+
+while getopts "h:f:l:s:x:" opt; do
+    case $opt in
+        h)
+            echo $help
+            exit 0
+            ;;
+        f)
+            firstframe=${OPTARG}
+            ;;
+        l)
+            endframe=${OPTARG}
+            ;;
+        s)
+            approx=${OPTARG}
+            ;;
+        x)
+            regex=${OPTARG}
+            ;;
+        \?)
+            echo "Invalid option -$OPTARG"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+shift $((OPTIND-1))
+
+echo "First frame:          $firstframe"
+echo "Last frame:           $endframe"
+echo "Approximate size:     $approx"
+echo "Regular expression:   $regex"
+
+missing_spec=""
+files=$*
+
+prevframe=$((firstframe-1))
+starting="1"
+for f in $files
+do
+
+    if [[ $f =~ $regex ]]; 
+    then 
+        frame="${BASH_REMATCH[1]}"; 
+    else
+        echo "Exiting. File does not match regex: $f !~ $regex"
+        usage
+        exit 1
+    fi
+
+    frame=`echo "ibase=10;$frame" | bc`
+
+    diff=$((frame-prevframe))
+    if [ "$diff" -ne "1" ]; then
+        echo $((diff-1)) "missing frames : $((prevframe+1))-$((frame-1))"
+        missing_spec="${missing_spec}$((prevframe+1))-$((frame-1)),"
+    fi
+
+    s=`stat $f`
+    siz=`echo $s | cut -d" " -f8`
+    # Calculate the width of the chart.
+    # If approx was not given, derive it from the size of the first file.
+    if  [ "$starting" -ne "0" ]; then
+        expected=${approx:-$siz}
+        squash=$((expected/100))
+        starting="0"
+    fi
+
+    len=$((siz/squash))
+    printf "$f $frame -- $siz bytes  "
+    printf '=%.s' $(eval "echo {1.."$(($len))"}"); 
+    printf "|"
+    echo
+    prevframe=$frame
+done
+
+diff=$((endframe-frame))
+if [ "$diff" -ne "0" ]; then
+    echo $diff "missing frames: $((frame+1))-$((endframe-1))"
+    missing_spec="${missing_spec}$((frame+1))-$((endframe-1)),"
+fi
+
+# Print the spec for missing frames, if any.
+if [ -n "$missing_spec" ]; then
+    echo "You may paste the following range specification into the custom frames field of the submitter."
+    echo $missing_spec
+else
+    echo "No missing frames."
+fi
+exit 0
+
